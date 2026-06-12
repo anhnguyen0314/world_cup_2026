@@ -506,20 +506,92 @@ window.addEventListener('load', () => {
 });
 
 // ─── API ──────────────────────────────────────────────────────────────────────
+// Primary: worldcup26.ir — free, no key, WC2026-specific, CORS-open
+// Fallback: football-data.org with API key
+const WC_API   = 'https://worldcup26.ir/get/games';
+const FD_API   = 'https://api.football-data.org/v4/competitions/WC/matches?season=2026';
+
 function connect(){
   setStatus('loading','Connecting to live scores…');
-  fetchAPI().then(()=>{
-    setStatus('ok','✅ Live · auto-refresh every 60s');
+  fetchWC26().then(()=>{
+    setStatus('ok','✅ Live · worldcup26.ir · auto-refresh every 60s');
     startPoll();
-  }).catch(e=>setStatus('err','⚠️ '+e.message));
+  }).catch(()=>{
+    // fallback to football-data.org
+    fetchFD().then(()=>{
+      setStatus('ok','✅ Live · football-data.org · auto-refresh every 60s');
+      startPoll();
+    }).catch(e=>setStatus('err','⚠️ Could not load live scores: '+e.message));
+  });
 }
 
 async function fetchAPI(){
-  const r = await fetch('https://api.football-data.org/v4/competitions/WC/matches?season=2026',
-    {headers:{'X-Auth-Token':API_KEY}});
+  // Try primary first, then fallback — used by poll
+  try { await fetchWC26(); }
+  catch { await fetchFD(); }
+}
+
+// ── worldcup26.ir ────────────────────────────────────────────────────────────
+async function fetchWC26(){
+  const r = await fetch(WC_API);
+  if(!r.ok) throw new Error('worldcup26.ir error '+r.status);
+  const data = await r.json();
+  ingestWC26(data);
+}
+
+function ingestWC26(data){
+  // API returns array of match objects
+  const matches = Array.isArray(data) ? data : (data.matches || data.games || []);
+  const nd={};
+  matches.forEach(m=>{
+    // Field names: home_team/away_team or team1/team2, score fields vary
+    const home = normWC(m.home_team || m.team1 || m.homeTeam || '');
+    const away = normWC(m.away_team || m.team2 || m.awayTeam || '');
+    if(!home||!away) return;
+    const fix = FIXTURES.find(f=>(f.home===home&&f.away===away)||(f.home===away&&f.away===home));
+    if(!fix) return;
+    // Score: home_score/away_score or score.home/score.away
+    const hs = m.home_score ?? m.score?.home ?? m.homeScore ?? null;
+    const as_ = m.away_score ?? m.score?.away ?? m.awayScore ?? null;
+    // Status: "completed","live","upcoming" or similar
+    const rawStatus = (m.status||m.matchStatus||'').toLowerCase();
+    let status = 'SCHEDULED';
+    if(rawStatus.includes('finish')||rawStatus.includes('complet')||rawStatus.includes('ft')) status='FINISHED';
+    else if(rawStatus.includes('live')||rawStatus.includes('play')||rawStatus.includes('progress')) status='IN_PLAY';
+    else if(rawStatus.includes('half')||rawStatus.includes('ht')||rawStatus.includes('pause')) status='PAUSED';
+    const min = m.minute || m.matchMinute || null;
+    nd[fix.id]={hs: hs!==null&&hs!==undefined ? Number(hs) : null,
+                as: as_!==null&&as_!==undefined ? Number(as_) : null,
+                status, min};
+    if(fix.stage!=='group'&&home&&FLAGS[home]){
+      if(!resolvedTeams[fix.id]) resolvedTeams[fix.id]={};
+      resolvedTeams[fix.id].home=home; resolvedTeams[fix.id].away=away;
+    }
+  });
+  liveData=nd;
+  propagateWinners();
+  renderSchedule(); renderBracket(); updateLiveBanner();
+  document.getElementById('lastUpd').textContent='↻ Updated '+new Date().toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit',hour12:true})+' PST';
+}
+
+const WC26_NAMES = {
+  'Bosnia and Herzegovina':'Bosnia & Herzegovina','Bosnia':'Bosnia & Herzegovina',
+  "Cote d'Ivoire":"Côte d'Ivoire",'Ivory Coast':'Ivory Coast',
+  'South Korea':'South Korea','Korea Republic':'South Korea','Republic of Korea':'South Korea',
+  'Iran':'Iran','IR Iran':'Iran','Turkey':'Türkiye','Turkiye':'Türkiye',
+  'United States':'USA','United States of America':'USA','USA':'USA',
+  'Czech Republic':'Czechia','Czechia':'Czechia',
+  'DR Congo':'DR Congo','Congo DR':'DR Congo','Democratic Republic of Congo':'DR Congo',
+  'Democratic Republic of the Congo':'DR Congo','Curacao':'Curaçao',
+};
+const normWC = n => WC26_NAMES[n] || n;
+
+// ── football-data.org fallback ───────────────────────────────────────────────
+async function fetchFD(){
+  const r = await fetch(FD_API, {headers:{'X-Auth-Token':API_KEY}});
   if(r.status===401||r.status===403) throw new Error('API key rejected');
-  if(!r.ok) throw new Error('API error '+r.status);
-  ingest(await r.json());
+  if(!r.ok) throw new Error('football-data.org error '+r.status);
+  ingestFD(await r.json());
 }
 
 const NAME_MAP = {
@@ -531,7 +603,7 @@ const NAME_MAP = {
 };
 const norm = n => NAME_MAP[n]||n;
 
-function ingest(data){
+function ingestFD(data){
   if(!data.matches) return;
   const nd={};
   data.matches.forEach(m=>{
@@ -541,18 +613,14 @@ function ingest(data){
     if(!fix) return;
     const ft=m.score?.fullTime,ht=m.score?.halfTime;
     nd[fix.id]={hs:ft?.home??ht?.home??null,as:ft?.away??ht?.away??null,status:m.status,min:m.minute||null};
-    // Update resolved team names if API returns real names for knockout slots
-    if(fix.stage!=='group' && home && !home.startsWith('W ') && !home.startsWith('2nd') && !home.includes('Best')){
+    if(fix.stage!=='group'&&home&&FLAGS[home]){
       if(!resolvedTeams[fix.id]) resolvedTeams[fix.id]={};
-      resolvedTeams[fix.id].home = home;
-      resolvedTeams[fix.id].away = away;
+      resolvedTeams[fix.id].home=home; resolvedTeams[fix.id].away=away;
     }
   });
   liveData=nd;
-  propagateWinners(); // build bracket resolution from scores
-  renderSchedule();
-  renderBracket();
-  updateLiveBanner();
+  propagateWinners();
+  renderSchedule(); renderBracket(); updateLiveBanner();
   document.getElementById('lastUpd').textContent='↻ Updated '+new Date().toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit',hour12:true})+' PST';
 }
 
