@@ -229,6 +229,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
     <button class="tab-btn" onclick="showTab('format',this)">📋 Format</button>
     <button class="tab-btn" onclick="showTab('bracket',this)">🏆 Bracket</button>
     <button class="tab-btn" onclick="showTab('venues',this)">📍 Venues</button>
+    <button class="tab-btn" onclick="showTab('debug',this)">🐛 Debug</button>
   </div>
 </div>
 
@@ -297,6 +298,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
       <thead><tr><th>#</th><th>Stadium</th><th>City</th><th>Country</th><th>Capacity</th></tr></thead>
       <tbody id="venueBody"></tbody>
     </table>
+  </div>
+
+  <!-- DEBUG TAB -->
+  <div id="tab-debug" style="display:none;padding:4px 0">
+    <p style="color:var(--muted);font-size:.75rem;margin-bottom:14px">Raw API response from worldcup26.ir — tap Refresh then switch to this tab to inspect.</p>
+    <button class="refresh-btn" style="margin-bottom:14px" onclick="manualRefresh()">↻ Fetch &amp; Show Debug</button>
+    <div id="debugContent"><p style="color:var(--muted);font-size:.8rem">Click the button above to load.</p></div>
   </div>
 </div>
 
@@ -536,8 +544,66 @@ async function fetchWC26(){
   const r = await fetch(WC_API);
   if(!r.ok) throw new Error('worldcup26.ir error '+r.status);
   const data = await r.json();
+  showDebug(data);
   ingestWC26(data);
 }
+
+function showDebug(data){
+  window._debugRaw = data;
+  window._debugTime = new Date().toLocaleTimeString('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true});
+  renderDebugTab();
+}
+
+function renderDebugTab(){
+  const el = document.getElementById('tab-debug');
+  if(!el || el.style.display==='none') return;
+  const data = window._debugRaw;
+  if(!data){ el.innerHTML='<p style="color:var(--muted);padding:20px">No data yet — click Refresh</p>'; return; }
+  const matches = Array.isArray(data) ? data : (data.matches||data.games||data.data||[]);
+  const topShape = Array.isArray(data) ? 'Array['+data.length+']' : 'Object{'+Object.keys(data).join(', ')+'}';
+  const first3 = matches.slice(0,3);
+  const resolved = matches.filter(m=>{
+    const f=(m.finished||'').toString().toUpperCase()==='TRUE';
+    const e=(m.time_elapsed||'').toLowerCase();
+    return f||e==='fulltime'||e==='firsthalf'||e==='secondhalf'||e==='halftime';
+  }).slice(0,6);
+  el.innerHTML = `<div style="font-family:monospace;font-size:.72rem;color:var(--text)">
+    <div style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.2);border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="color:var(--gold2);font-weight:700;margin-bottom:6px">API Response</div>
+      <div>URL: <span style="color:var(--teal)">https://worldcup26.ir/get/games</span></div>
+      <div>Fetched: <span style="color:var(--green)">${window._debugTime||'?'} PST</span></div>
+      <div>Shape: <span style="color:var(--gold)">${topShape}</span></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="color:var(--gold2);font-weight:700;margin-bottom:8px">First 3 raw objects</div>
+      ${first3.map((m,i)=>`<div style="margin-bottom:8px;padding:8px;background:var(--bg);border-radius:6px;word-break:break-all">
+        <div style="color:var(--teal);margin-bottom:3px">[${i}] ${Object.keys(m).join(' · ')}</div>
+        <div style="color:var(--muted)">${JSON.stringify(m)}</div>
+      </div>`).join('')}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="color:var(--gold2);font-weight:700;margin-bottom:8px">Finished/Live matches found: ${resolved.length}</div>
+      ${resolved.length===0?'<div style="color:var(--muted)">None — all show as notstarted</div>':
+        resolved.map(m=>`<div style="padding:6px;margin-bottom:5px;background:var(--bg);border-radius:5px">
+          <span style="color:var(--green)">${m.home_team_label||m.home_team||'?'} ${m.home_score??'?'} – ${m.away_score??'?'} ${m.away_team_label||m.away_team||'?'}</span>
+          <span style="color:var(--muted)"> finished=${m.finished} elapsed=${m.time_elapsed}</span>
+        </div>`).join('')}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">
+      <div style="color:var(--gold2);font-weight:700;margin-bottom:8px">Name matching (first 4)</div>
+      ${matches.slice(0,4).map(m=>{
+        const home=normWC(m.home_team_label||m.home_team||m.team1||'');
+        const away=normWC(m.away_team_label||m.away_team||m.team2||'');
+        const fix=FIXTURES.find(f=>(f.home===home&&f.away===away)||(f.home===away&&f.away===home));
+        return `<div style="padding:5px;margin-bottom:4px;background:var(--bg);border-radius:5px">
+          <span style="color:var(--teal)">"${m.home_team_label||m.home_team||'?'}"</span> → <span style="color:var(--text)">"${home}"</span>
+          <span style="color:${fix?'#06d6a0':'#e63946'}">${fix?'✓ match #'+fix.id:'✗ NO MATCH'}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
 
 function ingestWC26(data){
   // worldcup26.ir exact field names (from API docs):
@@ -902,12 +968,13 @@ function setStage(s,el){activeStage=s;document.querySelectorAll('.stage-pill').f
 function setGroup(g,el){activeGroup=g;document.querySelectorAll('#groupFilters .pill').forEach(b=>b.classList.remove('active'));el.classList.add('active');renderSchedule();}
 function applyFilters(){searchQ=document.getElementById('searchInput').value;renderSchedule();}
 function showTab(tab,el){
-  ['schedule','groups','format','bracket','venues'].forEach(t=>document.getElementById('tab-'+t).style.display='none');
+  ['schedule','groups','format','bracket','venues','debug'].forEach(t=>document.getElementById('tab-'+t).style.display='none');
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+tab).style.display='block';
   el.classList.add('active');
   document.getElementById('schedControls').style.display=tab==='schedule'?'block':'none';
-  if(tab==='bracket') renderBracket(); // re-render with latest data
+  if(tab==='bracket') renderBracket();
+  if(tab==='debug') renderDebugTab();
 }
 </script>
 </body>
