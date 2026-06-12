@@ -585,15 +585,15 @@ function renderDebugTab(){
       <div style="color:var(--gold2);font-weight:700;margin-bottom:8px">Finished/Live matches found: ${resolved.length}</div>
       ${resolved.length===0?'<div style="color:var(--muted)">None — all show as notstarted</div>':
         resolved.map(m=>`<div style="padding:6px;margin-bottom:5px;background:var(--bg);border-radius:5px">
-          <span style="color:var(--green)">${m.home_team_label||m.home_team||'?'} ${m.home_score??'?'} – ${m.away_score??'?'} ${m.away_team_label||m.away_team||'?'}</span>
+          <span style="color:var(--green)">${m.home_team_name_en||m.home_team_label||m.home_team||'?'} ${m.home_score??'?'} – ${m.away_score??'?'} ${m.away_team_name_en||m.away_team_label||m.away_team||'?'}</span>
           <span style="color:var(--muted)"> finished=${m.finished} elapsed=${m.time_elapsed}</span>
         </div>`).join('')}
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">
       <div style="color:var(--gold2);font-weight:700;margin-bottom:8px">Name matching (first 4)</div>
       ${matches.slice(0,4).map(m=>{
-        const home=normWC(m.home_team_label||m.home_team||m.team1||'');
-        const away=normWC(m.away_team_label||m.away_team||m.team2||'');
+        const home=normWC(m.home_team_name_en||m.home_team_label||m.home_team||m.team1||'');
+        const away=normWC(m.away_team_name_en||m.away_team_label||m.away_team||m.team2||'');
         const fix=FIXTURES.find(f=>(f.home===home&&f.away===away)||(f.home===away&&f.away===home));
         return `<div style="padding:5px;margin-bottom:4px;background:var(--bg);border-radius:5px">
           <span style="color:var(--teal)">"${m.home_team_label||m.home_team||'?'}"</span> → <span style="color:var(--text)">"${home}"</span>
@@ -614,8 +614,8 @@ function ingestWC26(data){
   const matches = Array.isArray(data) ? data : (data.matches || data.games || data.data || []);
   const nd={};
   matches.forEach(m=>{
-    const home = normWC(m.home_team_label || m.home_team || m.team1 || '');
-    const away = normWC(m.away_team_label || m.away_team || m.team2 || '');
+    const home = normWC(m.home_team_name_en || m.home_team_label || m.home_team || m.team1 || '');
+    const away = normWC(m.away_team_name_en || m.away_team_label || m.away_team || m.team2 || '');
     if(!home||!away) return;
     const fix = FIXTURES.find(f=>(f.home===home&&f.away===away)||(f.home===away&&f.away===home));
     if(!fix) return;
@@ -629,7 +629,7 @@ function ingestWC26(data){
     const isFinished = (m.finished||'').toString().toUpperCase()==='TRUE';
     const elapsed    = (m.time_elapsed||'').toLowerCase();
     let status = 'SCHEDULED';
-    if(isFinished || elapsed==='fulltime') status='FINISHED';
+    if(isFinished || elapsed==='fulltime' || elapsed==='finished') status='FINISHED';
     else if(elapsed==='halftime')          status='PAUSED';
     else if(elapsed==='firsthalf'||elapsed==='secondhalf') status='IN_PLAY';
 
@@ -652,7 +652,7 @@ const WC26_NAMES = {
   'South Korea':'South Korea','Korea Republic':'South Korea','Republic of Korea':'South Korea',
   'Iran':'Iran','IR Iran':'Iran','Turkey':'Türkiye','Turkiye':'Türkiye',
   'United States':'USA','United States of America':'USA','USA':'USA',
-  'Czech Republic':'Czechia','Czechia':'Czechia',
+  'Czech Republic':'Czechia','Czechia':'Czechia','Czech republic':'Czechia',
   'DR Congo':'DR Congo','Congo DR':'DR Congo','Democratic Republic of Congo':'DR Congo',
   'Democratic Republic of the Congo':'DR Congo','Curacao':'Curaçao',
 };
