@@ -540,30 +540,36 @@ async function fetchWC26(){
 }
 
 function ingestWC26(data){
-  // API returns array of match objects
-  const matches = Array.isArray(data) ? data : (data.matches || data.games || []);
+  // worldcup26.ir exact field names (from API docs):
+  // home_team_label, away_team_label — team names
+  // home_score, away_score          — score strings ("2", "0", "null")
+  // finished: "TRUE"/"FALSE"
+  // time_elapsed: "notstarted","firsthalf","halftime","secondhalf","fulltime"
+  const matches = Array.isArray(data) ? data : (data.matches || data.games || data.data || []);
   const nd={};
   matches.forEach(m=>{
-    // Field names: home_team/away_team or team1/team2, score fields vary
-    const home = normWC(m.home_team || m.team1 || m.homeTeam || '');
-    const away = normWC(m.away_team || m.team2 || m.awayTeam || '');
+    const home = normWC(m.home_team_label || m.home_team || m.team1 || '');
+    const away = normWC(m.away_team_label || m.away_team || m.team2 || '');
     if(!home||!away) return;
     const fix = FIXTURES.find(f=>(f.home===home&&f.away===away)||(f.home===away&&f.away===home));
     if(!fix) return;
-    // Score: home_score/away_score or score.home/score.away
-    const hs = m.home_score ?? m.score?.home ?? m.homeScore ?? null;
-    const as_ = m.away_score ?? m.score?.away ?? m.awayScore ?? null;
-    // Status: "completed","live","upcoming" or similar
-    const rawStatus = (m.status||m.matchStatus||'').toLowerCase();
+
+    // Scores come as strings; treat "null", "", null, undefined as no score
+    const parseScore = v => (v!==null && v!==undefined && v!=='null' && v!=='') ? parseInt(v,10) : null;
+    const hs  = parseScore(m.home_score ?? m.homeScore);
+    const as_ = parseScore(m.away_score ?? m.awayScore);
+
+    // Status from finished flag + time_elapsed
+    const isFinished = (m.finished||'').toString().toUpperCase()==='TRUE';
+    const elapsed    = (m.time_elapsed||'').toLowerCase();
     let status = 'SCHEDULED';
-    if(rawStatus.includes('finish')||rawStatus.includes('complet')||rawStatus.includes('ft')) status='FINISHED';
-    else if(rawStatus.includes('live')||rawStatus.includes('play')||rawStatus.includes('progress')) status='IN_PLAY';
-    else if(rawStatus.includes('half')||rawStatus.includes('ht')||rawStatus.includes('pause')) status='PAUSED';
-    const min = m.minute || m.matchMinute || null;
-    nd[fix.id]={hs: hs!==null&&hs!==undefined ? Number(hs) : null,
-                as: as_!==null&&as_!==undefined ? Number(as_) : null,
-                status, min};
-    if(fix.stage!=='group'&&home&&FLAGS[home]){
+    if(isFinished || elapsed==='fulltime') status='FINISHED';
+    else if(elapsed==='halftime')          status='PAUSED';
+    else if(elapsed==='firsthalf'||elapsed==='secondhalf') status='IN_PLAY';
+
+    nd[fix.id]={hs, as:as_, status, min: m.minute||null};
+
+    if(fix.stage!=='group' && FLAGS[home]){
       if(!resolvedTeams[fix.id]) resolvedTeams[fix.id]={};
       resolvedTeams[fix.id].home=home; resolvedTeams[fix.id].away=away;
     }
