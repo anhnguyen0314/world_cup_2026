@@ -84,7 +84,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .stage-dates{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px}
 .stage-count{margin-left:auto;background:var(--bg);padding:3px 8px;border-radius:10px;font-size:.66rem;color:var(--muted)}
 .day-grp{margin-bottom:16px}
-.day-lbl{font-family:'Bebas Neue',sans-serif;font-size:.88rem;letter-spacing:3px;color:var(--muted);text-transform:uppercase;padding:4px 0;border-bottom:1px solid var(--border);margin-bottom:7px;display:flex;align-items:center;gap:8px}
+.day-lbl{font-family:'Bebas Neue',sans-serif;font-size:.88rem;letter-spacing:3px;color:var(--muted);text-transform:uppercase;padding:4px 0;border-bottom:1px solid var(--border);margin-bottom:7px;display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.day-toggle{font-size:.7rem;transition:transform .15s;margin-left:auto}
+.day-grp.collapsed .day-toggle{transform:rotate(-90deg)}
+.day-grp.collapsed .matches{display:none}
 .today-badge{font-size:.57rem;background:var(--red);color:#fff;padding:2px 7px;border-radius:10px;letter-spacing:1px}
 .matches{display:flex;flex-direction:column;gap:6px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:11px 14px;display:grid;grid-template-columns:29px 1fr 84px 1fr auto;align-items:center;gap:9px;transition:all .15s;position:relative;overflow:hidden}
@@ -851,7 +854,8 @@ function renderSchedule(){
     const byDate={};ms.forEach(f=>{const dk=toDateKey(f.utc);if(!byDate[dk])byDate[dk]=[];byDate[dk].push(f);});
     Object.keys(byDate).sort().forEach(dk=>{
       const day=byDate[dk],today=isToday(day[0].utc),fmt=toDate(day[0].utc);
-      html+=`<div class="day-grp"><div class="day-lbl">${fmt}${today?'<span class="today-badge">TODAY</span>':''}</div><div class="matches">`;
+      const allPast=day.every(f=>{const d=liveData[f.id];const live=d&&(d.status==='IN_PLAY'||d.status==='PAUSED');return isPast(f.utc)&&!live;});
+      html+=`<div class="day-grp${allPast?' collapsed':''}"><div class="day-lbl" onclick="this.parentElement.classList.toggle('collapsed')">${fmt}${today?'<span class="today-badge">TODAY</span>':''}<span class="day-toggle">▾</span></div><div class="matches">`;
       day.forEach(f=>{
         const d=liveData[f.id];
         const {home,away}=getTeamNames(f.id);
